@@ -136,3 +136,46 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         except Exception as e:
             logger.error(f"Error creating user: {str(e)}")
             raise ValidationError({"error": "Unable to create user. Please try again."})
+from authentication.models import Profile
+
+class ProfileSerializer(serializers.ModelSerializer):
+    """
+    Serializer for the Profile model.
+    """
+    class Meta:
+        model = Profile
+        fields = [
+            "bio",
+            "phone_number",
+            "dob",
+            "profile_picture",
+            "gender",
+            "occupation",
+            "country",
+            "city",
+            "street",
+            "zip_code",
+        ]
+
+
+class UserListSerializer(serializers.ModelSerializer):
+    """
+    Serializer for listing users with their profile.
+    """
+    profile = ProfileSerializer(source='user_profile', read_only=True)
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "email",
+            "username",
+            "first_name",
+            "last_name",
+            "role",
+            "is_verified",
+            "last_activity",
+            "created_at",
+            "updated_at",
+            "profile",
+        ]
