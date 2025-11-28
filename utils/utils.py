@@ -96,7 +96,7 @@ def send_code_to_user(email, otp_code, purpose="verification", expiry_text=None)
                 f"OTP: {otp_code}\n\n"
                 f"This passcode is valid for {expiry_text or 'a few minutes'}.\n\n"
                 f"If you didn’t request this, please contact our support team.\n\n"
-                f"Best,\nCapitalConnect Team"
+                f"Best,\nAutoDocAI Team"
             )
 
         elif purpose == "verification":
@@ -107,7 +107,7 @@ def send_code_to_user(email, otp_code, purpose="verification", expiry_text=None)
                 f"OTP: {otp_code}\n\n"
                 f"This passcode is valid for {expiry_text or 'a few minutes'}.\n\n"
                 f"If this wasn't you, you can safely ignore this message.\n\n"
-                f"Best,\nCapitalConnect Team"
+                f"Best,\nAutoDocAI Team"
             )
 
         else:
@@ -117,7 +117,7 @@ def send_code_to_user(email, otp_code, purpose="verification", expiry_text=None)
         email_message = EmailMessage(
             subject=subject,
             body=body,
-            from_email=settings.EMAIL_HOST_USER,
+            from_email=settings.EMAIL_FROM,
             to=[email],
         )
         email_message.send(fail_silently=False)
@@ -143,7 +143,7 @@ def send_normal_email(data):
         email = EmailMessage(
             subject=data["email_subject"],
             body=data["email_body"],
-            from_email=settings.EMAIL_HOST_USER,
+            from_email=settings.EMAIL_FROM,
             to=[recipient],
         )
         email.send()
