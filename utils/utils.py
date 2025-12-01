@@ -29,6 +29,21 @@ def generate_otp():
 def create_otp_for_user(user, code_type):
     """
     Create and store an OTP in the database for the given user and code type.
+
+    This function ensures that only ONE OTP exists per user per code_type by:
+    1. Deleting ALL existing OTPs (used or unused) for the same user and code_type
+    2. Creating a new OTP with is_used=False
+
+    Args:
+        user: User instance for whom to create the OTP
+        code_type: Type of code (VERIFICATION, PASSWORD_RESET, etc.)
+
+    Returns:
+        Passcode: The newly created OTP object with is_used=False
+
+    Raises:
+        ValueError: If user is None or code_type is invalid
+        Exception: If OTP creation fails
     """
     logger.info(
         f"Creating OTP for user: {getattr(user, 'username', None)} with code_type: {code_type}"
@@ -48,22 +63,32 @@ def create_otp_for_user(user, code_type):
         otp_code = generate_otp()
         expires_at = timezone.now() + timedelta(minutes=10)
 
-        # Delete any existing unused OTP for the same user/type
-        Passcode.objects.filter(
-            user=user, code_type=code_type, is_used=False
-        ).delete()
-        logger.debug("Deleted previous active OTPs for this user and code_type")
+        # Delete ALL existing OTPs for the same user and code_type (both used and unused)
+        # This ensures only ONE OTP exists per user per code_type at any time
+        deleted_count = Passcode.objects.filter(
+            user=user,
+            code_type=code_type
+        ).delete()[0]
 
-        # Create and save new OTP
+        if deleted_count > 0:
+            logger.info(
+                f"Deleted {deleted_count} existing OTP(s) for user {user.email} "
+                f"with code_type {code_type}"
+            )
+        else:
+            logger.debug(f"No existing OTPs found for user {user.email} with code_type {code_type}")
+
+        # Create and save new OTP with is_used=False (default)
         otp = Passcode.objects.create(
             user=user,
             code=otp_code,
             code_type=code_type,
             expires_at=expires_at,
-            is_used=False,
+            is_used=False,  # Explicitly set to False (though it's the default)
         )
         logger.info(
-            f"Created OTP {otp.code} for user {user.email}, expires at {expires_at}"
+            f"Created new OTP for user {user.email}, expires at {expires_at}. "
+            f"is_used={otp.is_used}"
         )
         return otp
 
@@ -95,7 +120,7 @@ def send_code_to_user(email, otp_code, purpose="verification", expiry_text=None)
                 f"Use the following passcode to reset your password:\n\n"
                 f"OTP: {otp_code}\n\n"
                 f"This passcode is valid for {expiry_text or 'a few minutes'}.\n\n"
-                f"If you didn’t request this, please contact our support team.\n\n"
+                f"If you didn't request this, please contact our support team.\n\n"
                 f"Best,\nAutoDocAI Team"
             )
 
@@ -220,6 +245,21 @@ def check_existing_active_otp(user, code_type):
 def create_and_send_otp(user, code_type, purpose):
     """
     Utility to create an OTP for a user and send it via email.
+
+    This function:
+    1. Deletes all existing OTPs for the user and code_type
+    2. Creates a new OTP with is_used=False
+    3. Sends the OTP via email
+
+    Args:
+        user: User instance
+        code_type: Type of OTP (VERIFICATION, PASSWORD_RESET, etc.)
+        purpose: Email purpose ('verification' or 'password_reset')
+
+    Returns:
+        tuple: (otp_object, error_message, status_code)
+               - On success: (otp, None, None)
+               - On failure: (None, error_message, status_code)
     """
     try:
         otp = create_otp_for_user(user, code_type=code_type)

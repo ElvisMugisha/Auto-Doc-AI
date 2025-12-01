@@ -5,7 +5,12 @@ from rest_framework.permissions import AllowAny
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 from django.contrib.auth import get_user_model
 
-from authentication.serializers import UserRegistrationSerializer, UserListSerializer
+from authentication.serializers import (
+    UserRegistrationSerializer,
+    UserListSerializer,
+    EmailVerificationSerializer,
+    ResendOTPSerializer
+)
 from utils import loggings, choices
 from utils.utils import create_and_send_otp
 from utils.permissions import IsSuperAdminOrSuperUser
@@ -153,3 +158,258 @@ class UserListView(APIView):
                 {"error": "An error occurred while retrieving users."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class EmailVerificationView(APIView):
+    """
+    API View for Email Verification.
+
+    Handles the verification of a user's email address using a one-time passcode (OTP).
+    Upon successful verification, the user's account is marked as verified and the OTP
+    is marked as used to prevent reuse.
+    """
+    permission_classes = [AllowAny]
+    serializer_class = EmailVerificationSerializer
+
+    @extend_schema(
+        summary="Verify user email",
+        description="Verify a user's email address using the OTP sent during registration.",
+        request=EmailVerificationSerializer,
+        responses={
+            200: OpenApiResponse(description="Email verified successfully"),
+            400: OpenApiResponse(description="Bad Request - Invalid data or OTP"),
+            404: OpenApiResponse(description="User not found"),
+            410: OpenApiResponse(description="OTP expired"),
+            500: OpenApiResponse(description="Internal Server Error")
+        }
+    )
+    def post(self, request):
+        """
+        Handle POST request to verify user email.
+
+        Steps:
+        1. Validate input data (email and OTP).
+        2. Verify OTP is valid, not expired, and not used.
+        3. Mark user as verified.
+        4. Mark OTP as used.
+        5. Return success response.
+
+        Args:
+            request: HTTP request containing email and otp.
+
+        Returns:
+            Response: Success or error message with appropriate status code.
+        """
+        logger.info("Received email verification request")
+
+        serializer = self.serializer_class(data=request.data)
+
+        if serializer.is_valid():
+            try:
+                # Extract validated data
+                validated_data = serializer.validated_data
+                user = validated_data['user']
+                passcode = validated_data['passcode']
+
+                logger.info(f"Processing email verification for user: {user.email}")
+
+                # Use database transaction to ensure atomicity
+                from django.db import transaction
+
+                try:
+                    with transaction.atomic():
+                        # Mark the user as verified
+                        user.is_verified = True
+                        user.save(update_fields=['is_verified'])
+                        logger.info(f"User {user.email} marked as verified")
+
+                        # Mark the passcode as used
+                        passcode.is_used = True
+                        passcode.save(update_fields=['is_used'])
+                        logger.info(f"Passcode marked as used for user {user.email}")
+
+                except Exception as db_error:
+                    logger.exception(f"Database error during verification: {str(db_error)}")
+                    return Response(
+                        {"error": "Failed to update verification status. Please try again."},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
+
+                # Send success email notification (optional)
+                try:
+                    from utils.utils import send_normal_email
+
+                    email_data = {
+                        "to_email": user.email,
+                        "email_subject": "Email Verification Successful",
+                        "email_body": (
+                            f"Hi {user.first_name},\n\n"
+                            f"Your email has been successfully verified!\n\n"
+                            f"You can now access all features of your AutoDocAI account.\n\n"
+                            f"If you didn't perform this action, please contact our support team immediately.\n\n"
+                            f"Best regards,\n"
+                            f"AutoDocAI Team"
+                        )
+                    }
+                    send_normal_email(email_data)
+                    logger.info(f"Verification success email sent to {user.email}")
+                except Exception as email_error:
+                    # Log the error but don't fail the verification
+                    logger.warning(f"Failed to send verification success email: {str(email_error)}")
+
+                logger.info(f"Email verification completed successfully for {user.email}")
+
+                return Response(
+                    {
+                        "message": "Your email has been verified successfully! You can now log in to your account.",
+                        "data": {
+                            "email": user.email,
+                            "username": user.username,
+                            "is_verified": user.is_verified,
+                            "verified_at": user.updated_at
+                        }
+                    },
+                    status=status.HTTP_200_OK
+                )
+
+            except KeyError as ke:
+                logger.error(f"Missing key in validated data: {str(ke)}")
+                return Response(
+                    {"error": "Invalid verification data. Please try again."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            except Exception as e:
+                logger.exception(f"Unexpected error during email verification: {str(e)}")
+                return Response(
+                    {"error": "An unexpected error occurred during verification. Please try again later."},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+        # Validation failed
+        logger.warning(f"Email verification validation failed: {serializer.errors}")
+
+        # Check for specific error types to return appropriate status codes
+        errors = serializer.errors
+
+        # If OTP expired
+        if 'otp' in errors and any('expired' in str(err).lower() for err in errors['otp']):
+            return Response(serializer.errors, status=status.HTTP_410_GONE)
+
+        # If user not found
+        if 'email' in errors and any('not found' in str(err).lower() for err in errors['email']):
+            return Response(serializer.errors, status=status.HTTP_404_NOT_FOUND)
+
+        # Default to bad request
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ResendOTPView(APIView):
+    """
+    API View for Resending OTP.
+
+    Handles requests to resend verification OTP to users who didn't receive
+    the original code or whose code has expired.
+
+    Note: This endpoint automatically deletes any existing OTPs for the user
+    before creating a new one, so there's no rate limiting.
+    """
+    permission_classes = [AllowAny]
+    serializer_class = ResendOTPSerializer
+
+    @extend_schema(
+        summary="Resend verification OTP",
+        description="Resend a verification OTP to the user's email address. Any existing OTPs will be automatically deleted and a new one will be sent.",
+        request=ResendOTPSerializer,
+        responses={
+            200: OpenApiResponse(description="OTP resent successfully"),
+            400: OpenApiResponse(description="Bad Request - Invalid email or user already verified"),
+            404: OpenApiResponse(description="User not found"),
+            500: OpenApiResponse(description="Internal Server Error")
+        }
+    )
+    def post(self, request):
+        """
+        Handle POST request to resend OTP.
+
+        Steps:
+        1. Validate email address.
+        2. Check if user exists and is not verified.
+        3. Delete existing OTPs and create new one.
+        4. Send new OTP via email.
+        5. Return success response.
+
+        Args:
+            request: HTTP request containing email.
+
+        Returns:
+            Response: Success or error message with appropriate status code.
+        """
+        logger.info("Received OTP resend request")
+
+        serializer = self.serializer_class(data=request.data)
+
+        if serializer.is_valid():
+            try:
+                email = serializer.validated_data['email']
+                logger.info(f"Processing OTP resend for email: {email}")
+
+                # Get the user
+                try:
+                    user = User.objects.get(email=email)
+                except User.DoesNotExist:
+                    logger.error(f"User not found for email: {email}")
+                    return Response(
+                        {"error": "User not found."},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+
+                # Create and send new OTP
+                # Note: create_and_send_otp automatically deletes all existing OTPs
+                # for this user and code_type before creating a new one
+                otp, error_msg, error_status = create_and_send_otp(
+                    user=user,
+                    code_type=choices.CodeType.VERIFICATION,
+                    purpose="verification"
+                )
+
+                if error_msg:
+                    logger.error(f"Failed to create/send OTP for {email}: {error_msg}")
+                    return Response(
+                        {"error": error_msg},
+                        status=error_status
+                    )
+
+                logger.info(f"OTP successfully resent to {email}")
+
+                return Response(
+                    {
+                        "message": "A new verification code has been sent to your email. Any previous codes have been invalidated.",
+                        "data": {
+                            "email": email,
+                            "expires_in": "10 minutes"
+                        }
+                    },
+                    status=status.HTTP_200_OK
+                )
+
+            except Exception as e:
+                logger.exception(f"Unexpected error during OTP resend: {str(e)}")
+                return Response(
+                    {"error": "An unexpected error occurred. Please try again later."},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+        # Validation failed
+        logger.warning(f"OTP resend validation failed: {serializer.errors}")
+
+        # Check for specific error types
+        errors = serializer.errors
+
+        # If user not found
+        if 'email' in errors and any('not found' in str(err).lower() for err in errors['email']):
+            return Response(serializer.errors, status=status.HTTP_404_NOT_FOUND)
+
+        # Default to bad request
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+

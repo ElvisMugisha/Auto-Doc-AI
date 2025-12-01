@@ -158,6 +158,171 @@ class ProfileSerializer(serializers.ModelSerializer):
         ]
 
 
+class EmailVerificationSerializer(serializers.Serializer):
+    """
+    Serializer for Email Verification.
+
+    This serializer handles the verification of a user's email address using
+    a one-time passcode (OTP). It validates the email, OTP code, checks expiration,
+    and ensures the code hasn't been used.
+    """
+
+    email = serializers.EmailField(
+        required=True,
+        help_text="Email address of the user to verify."
+    )
+    otp = serializers.CharField(
+        required=True,
+        min_length=8,
+        max_length=8,
+        help_text="8-digit one-time passcode sent to the user's email."
+    )
+
+    def validate_email(self, value):
+        """
+        Normalize and validate the email address.
+
+        Args:
+            value (str): The email address to validate.
+
+        Returns:
+            str: Normalized email address (lowercase).
+
+        Raises:
+            ValidationError: If email format is invalid.
+        """
+        try:
+            email = value.lower().strip()
+            logger.debug(f"Validating email for verification: {email}")
+            return email
+        except Exception as e:
+            logger.error(f"Error normalizing email: {str(e)}")
+            raise serializers.ValidationError("Invalid email format.")
+
+    def validate_otp(self, value):
+        """
+        Validate the OTP format.
+
+        Args:
+            value (str): The OTP code to validate.
+
+        Returns:
+            str: Cleaned OTP code.
+
+        Raises:
+            ValidationError: If OTP format is invalid.
+        """
+        try:
+            otp = value.strip()
+
+            # Ensure OTP is exactly 8 digits
+            if not otp.isdigit():
+                logger.warning(f"Invalid OTP format: contains non-digit characters")
+                raise serializers.ValidationError("OTP must contain only digits.")
+
+            if len(otp) != 8:
+                logger.warning(f"Invalid OTP length: {len(otp)}")
+                raise serializers.ValidationError("OTP must be exactly 8 digits.")
+
+            logger.debug("OTP format validation passed")
+            return otp
+
+        except serializers.ValidationError:
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error validating OTP: {str(e)}")
+            raise serializers.ValidationError("Invalid OTP format.")
+
+    def validate(self, attrs):
+        """
+        Validate the complete verification request.
+
+        This method performs comprehensive validation:
+        1. Checks if user exists with the provided email
+        2. Checks if user is already verified
+        3. Validates the OTP exists and matches
+        4. Checks if OTP has expired
+        5. Checks if OTP has already been used
+
+        Args:
+            attrs (dict): Dictionary containing email and otp.
+
+        Returns:
+            dict: Validated attributes with user and passcode objects.
+
+        Raises:
+            ValidationError: If any validation check fails.
+        """
+        from django.utils import timezone
+        from authentication.models import Passcode
+        from utils import choices
+
+        email = attrs.get('email')
+        otp = attrs.get('otp')
+
+        logger.info(f"Starting email verification validation for: {email}")
+
+        try:
+            # Check if user exists
+            try:
+                user = User.objects.get(email=email)
+                logger.debug(f"User found: {user.id}")
+            except User.DoesNotExist:
+                logger.warning(f"Verification attempt for non-existent email: {email}")
+                raise serializers.ValidationError({
+                    "email": "No account found with this email address."
+                })
+
+            # Check if user is already verified
+            if user.is_verified:
+                logger.info(f"User {email} is already verified")
+                raise serializers.ValidationError({
+                    "email": "This account is already verified."
+                })
+
+            # Retrieve the OTP for this user
+            try:
+                passcode = Passcode.objects.get(
+                    user=user,
+                    code=otp,
+                    code_type=choices.CodeType.VERIFICATION,
+                    is_used=False
+                )
+                logger.debug(f"Passcode found for user {email}")
+            except Passcode.DoesNotExist:
+                logger.warning(f"Invalid OTP attempt for user {email}")
+                raise serializers.ValidationError({
+                    "otp": "Invalid verification code. Please check and try again."
+                })
+
+            # Check if OTP has expired
+            if passcode.expires_at < timezone.now():
+                logger.warning(f"Expired OTP used for user {email}")
+                # Mark as used to prevent reuse
+                passcode.is_used = True
+                passcode.save(update_fields=['is_used'])
+                raise serializers.ValidationError({
+                    "otp": "This verification code has expired. Please request a new one."
+                })
+
+            # Store user and passcode in validated data for use in the view
+            attrs['user'] = user
+            attrs['passcode'] = passcode
+
+            logger.info(f"Email verification validation successful for: {email}")
+            return attrs
+
+        except serializers.ValidationError:
+            # Re-raise validation errors as-is
+            raise
+        except Exception as e:
+            # Catch any unexpected errors
+            logger.exception(f"Unexpected error during verification validation: {str(e)}")
+            raise serializers.ValidationError({
+                "error": "An unexpected error occurred during verification. Please try again."
+            })
+
+
 class UserListSerializer(serializers.ModelSerializer):
     """
     Serializer for listing users with their profile.
@@ -179,3 +344,59 @@ class UserListSerializer(serializers.ModelSerializer):
             "updated_at",
             "profile",
         ]
+
+
+class ResendOTPSerializer(serializers.Serializer):
+    """
+    Serializer for Resending OTP.
+
+    This serializer handles requests to resend verification OTP to users
+    who didn't receive it or whose OTP has expired.
+    """
+
+    email = serializers.EmailField(
+        required=True,
+        help_text="Email address of the user requesting OTP resend."
+    )
+
+    def validate_email(self, value):
+        """
+        Normalize and validate the email address.
+
+        Args:
+            value (str): The email address to validate.
+
+        Returns:
+            str: Normalized email address (lowercase).
+
+        Raises:
+            ValidationError: If email is invalid or user doesn't exist.
+        """
+        try:
+            email = value.lower().strip()
+            logger.debug(f"Validating email for OTP resend: {email}")
+
+            # Check if user exists
+            try:
+                user = User.objects.get(email=email)
+            except User.DoesNotExist:
+                logger.warning(f"OTP resend attempt for non-existent email: {email}")
+                raise serializers.ValidationError(
+                    "No account found with this email address."
+                )
+
+            # Check if user is already verified
+            if user.is_verified:
+                logger.info(f"OTP resend attempt for already verified user: {email}")
+                raise serializers.ValidationError(
+                    "This account is already verified. You can log in directly."
+                )
+
+            return email
+
+        except serializers.ValidationError:
+            raise
+        except Exception as e:
+            logger.error(f"Error validating email for OTP resend: {str(e)}")
+            raise serializers.ValidationError("Invalid email format.")
+
