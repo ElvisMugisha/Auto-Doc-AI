@@ -7,4 +7,8 @@ urlpatterns = [
     path('resend-otp/', views.ResendOTPView.as_view(), name='resend-otp'),
     path('users/', views.UserListView.as_view(), name='user-list'),
     path('profile/create/', views.UserProfileManageView.as_view(), name='create-profile'),
+    path('password/change/', views.PasswordChangeView.as_view(), name='change-password'),
+    path('password/reset/request/', views.PasswordResetRequestView.as_view(), name='password-reset-request'),
+    path('password/reset/verify/', views.PasswordResetVerifyView.as_view(), name='password-reset-verify'),
+    path('password/reset/confirm/', views.PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
 ]

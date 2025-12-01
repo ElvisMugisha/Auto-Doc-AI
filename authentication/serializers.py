@@ -400,3 +400,416 @@ class ResendOTPSerializer(serializers.Serializer):
             logger.error(f"Error validating email for OTP resend: {str(e)}")
             raise serializers.ValidationError("Invalid email format.")
 
+
+class PasswordChangeSerializer(serializers.Serializer):
+    """
+    Serializer for changing user password.
+
+    Validates old password, ensures new password meets complexity requirements,
+    and confirms new password matches confirmation.
+    """
+
+    old_password = serializers.CharField(
+        required=True,
+        write_only=True,
+        style={"input_type": "password"},
+        help_text="Current password for verification"
+    )
+    new_password = serializers.CharField(
+        required=True,
+        write_only=True,
+        style={"input_type": "password"},
+        help_text="New password. Must meet complexity requirements."
+    )
+    confirm_new_password = serializers.CharField(
+        required=True,
+        write_only=True,
+        style={"input_type": "password"},
+        help_text="Confirm the new password"
+    )
+
+    def validate_old_password(self, value):
+        """
+        Validate that the old password is correct.
+
+        Args:
+            value (str): The old password provided by user.
+
+        Returns:
+            str: The validated old password.
+
+        Raises:
+            ValidationError: If old password is incorrect.
+        """
+        user = self.context.get('request').user
+
+        if not user.check_password(value):
+            logger.warning(f"Incorrect old password attempt for user: {user.email}")
+            raise serializers.ValidationError("Current password is incorrect.")
+
+        logger.debug(f"Old password validated for user: {user.email}")
+        return value
+
+    def validate_new_password(self, value):
+        """
+        Validate new password complexity.
+
+        Args:
+            value (str): The new password.
+
+        Returns:
+            str: The validated new password.
+
+        Raises:
+            ValidationError: If password doesn't meet complexity requirements.
+        """
+        try:
+            validate_password(value)
+            logger.debug("New password meets complexity requirements")
+            return value
+        except ValidationError as e:
+            logger.warning(f"Password complexity validation failed: {e}")
+            raise serializers.ValidationError(list(e.messages))
+
+    def validate(self, attrs):
+        """
+        Validate that new passwords match and differ from old password.
+
+        Args:
+            attrs (dict): Dictionary containing all password fields.
+
+        Returns:
+            dict: Validated attributes.
+
+        Raises:
+            ValidationError: If passwords don't match or new password same as old.
+        """
+        old_password = attrs.get('old_password')
+        new_password = attrs.get('new_password')
+        confirm_new_password = attrs.get('confirm_new_password')
+
+        # Check if new passwords match
+        if new_password != confirm_new_password:
+            logger.warning("New password and confirmation do not match")
+            raise serializers.ValidationError({
+                "confirm_new_password": "New passwords do not match."
+            })
+
+        # Check if new password is different from old password
+        if old_password == new_password:
+            logger.warning("New password is same as old password")
+            raise serializers.ValidationError({
+                "new_password": "New password must be different from current password."
+            })
+
+        logger.debug("Password change validation successful")
+        return attrs
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    """
+    Serializer for requesting password reset.
+
+    Validates email and initiates password reset process by sending OTP.
+    """
+
+    email = serializers.EmailField(
+        required=True,
+        help_text="Email address of the account to reset password for"
+    )
+
+    def validate_email(self, value):
+        """
+        Validate and normalize email address.
+
+        Args:
+            value (str): Email address provided.
+
+        Returns:
+            str: Normalized email address.
+
+        Raises:
+            ValidationError: If user with email doesn't exist.
+        """
+        email = value.lower().strip()
+        logger.debug(f"Validating email for password reset: {email}")
+
+        try:
+            user = User.objects.get(email=email)
+            logger.debug(f"User found for password reset: {user.id}")
+        except User.DoesNotExist:
+            logger.warning(f"Password reset requested for non-existent email: {email}")
+            # For security, don't reveal if email exists or not
+            # Return success anyway to prevent email enumeration
+            pass
+
+        return email
+
+
+class PasswordResetVerifySerializer(serializers.Serializer):
+    """
+    Serializer for verifying password reset OTP.
+
+    Validates the OTP code sent to user's email for password reset.
+    """
+
+    email = serializers.EmailField(
+        required=True,
+        help_text="Email address of the account"
+    )
+    otp = serializers.CharField(
+        required=True,
+        min_length=8,
+        max_length=8,
+        help_text="8-digit OTP code sent to email"
+    )
+
+    def validate_email(self, value):
+        """
+        Normalize email address.
+
+        Args:
+            value (str): Email address.
+
+        Returns:
+            str: Normalized email.
+        """
+        return value.lower().strip()
+
+    def validate_otp(self, value):
+        """
+        Validate OTP format.
+
+        Args:
+            value (str): OTP code.
+
+        Returns:
+            str: Cleaned OTP.
+
+        Raises:
+            ValidationError: If OTP format is invalid.
+        """
+        otp = value.strip()
+
+        if not otp.isdigit():
+            logger.warning("Invalid OTP format: contains non-digit characters")
+            raise serializers.ValidationError("OTP must contain only digits.")
+
+        if len(otp) != 8:
+            logger.warning(f"Invalid OTP length: {len(otp)}")
+            raise serializers.ValidationError("OTP must be exactly 8 digits.")
+
+        return otp
+
+    def validate(self, attrs):
+        """
+        Validate OTP against database.
+
+        Args:
+            attrs (dict): Dictionary containing email and otp.
+
+        Returns:
+            dict: Validated attributes with user and passcode objects.
+
+        Raises:
+            ValidationError: If validation fails.
+        """
+        from django.utils import timezone
+        from authentication.models import Passcode
+        from utils import choices
+
+        email = attrs.get('email')
+        otp = attrs.get('otp')
+
+        logger.info(f"Verifying password reset OTP for: {email}")
+
+        try:
+            # Get user
+            try:
+                user = User.objects.get(email=email)
+            except User.DoesNotExist:
+                logger.warning(f"OTP verification for non-existent email: {email}")
+                raise serializers.ValidationError({
+                    "email": "No account found with this email address."
+                })
+
+            # Get passcode
+            try:
+                passcode = Passcode.objects.get(
+                    user=user,
+                    code=otp,
+                    code_type=choices.CodeType.PASSWORD_RESET,
+                    is_used=False
+                )
+            except Passcode.DoesNotExist:
+                logger.warning(f"Invalid password reset OTP for {email}")
+                raise serializers.ValidationError({
+                    "otp": "Invalid or expired reset code."
+                })
+
+            # Check if expired
+            if passcode.expires_at < timezone.now():
+                logger.warning(f"Expired password reset OTP for {email}")
+                passcode.is_used = True
+                passcode.save(update_fields=['is_used'])
+                raise serializers.ValidationError({
+                    "otp": "This reset code has expired. Please request a new one."
+                })
+
+            # Store for use in view
+            attrs['user'] = user
+            attrs['passcode'] = passcode
+
+            logger.info(f"Password reset OTP verified for: {email}")
+            return attrs
+
+        except serializers.ValidationError:
+            raise
+        except Exception as e:
+            logger.exception(f"Error verifying password reset OTP: {str(e)}")
+            raise serializers.ValidationError({
+                "error": "An error occurred during verification."
+            })
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    """
+    Serializer for confirming password reset with new password.
+
+    Validates email, OTP, and new password before resetting.
+    """
+
+    email = serializers.EmailField(
+        required=True,
+        help_text="Email address of the account"
+    )
+    otp = serializers.CharField(
+        required=True,
+        min_length=8,
+        max_length=8,
+        help_text="8-digit OTP code"
+    )
+    new_password = serializers.CharField(
+        required=True,
+        write_only=True,
+        style={"input_type": "password"},
+        help_text="New password"
+    )
+    confirm_new_password = serializers.CharField(
+        required=True,
+        write_only=True,
+        style={"input_type": "password"},
+        help_text="Confirm new password"
+    )
+
+    def validate_email(self, value):
+        """Normalize email."""
+        return value.lower().strip()
+
+    def validate_otp(self, value):
+        """Validate OTP format."""
+        otp = value.strip()
+
+        if not otp.isdigit() or len(otp) != 8:
+            raise serializers.ValidationError("Invalid OTP format.")
+
+        return otp
+
+    def validate_new_password(self, value):
+        """
+        Validate new password complexity.
+
+        Args:
+            value (str): New password.
+
+        Returns:
+            str: Validated password.
+
+        Raises:
+            ValidationError: If password doesn't meet requirements.
+        """
+        try:
+            validate_password(value)
+            return value
+        except ValidationError as e:
+            logger.warning(f"Password reset: weak password provided")
+            raise serializers.ValidationError(list(e.messages))
+
+    def validate(self, attrs):
+        """
+        Validate OTP and password confirmation.
+
+        Args:
+            attrs (dict): All attributes.
+
+        Returns:
+            dict: Validated attributes with user and passcode.
+
+        Raises:
+            ValidationError: If validation fails.
+        """
+        from django.utils import timezone
+        from authentication.models import Passcode
+        from utils import choices
+
+        email = attrs.get('email')
+        otp = attrs.get('otp')
+        new_password = attrs.get('new_password')
+        confirm_new_password = attrs.get('confirm_new_password')
+
+        # Check passwords match
+        if new_password != confirm_new_password:
+            logger.warning("Password reset: passwords don't match")
+            raise serializers.ValidationError({
+                "confirm_new_password": "Passwords do not match."
+            })
+
+        logger.info(f"Confirming password reset for: {email}")
+
+        try:
+            # Get user
+            try:
+                user = User.objects.get(email=email)
+            except User.DoesNotExist:
+                logger.warning(f"Password reset confirm for non-existent email: {email}")
+                raise serializers.ValidationError({
+                    "email": "No account found with this email address."
+                })
+
+            # Get and validate passcode
+            try:
+                passcode = Passcode.objects.get(
+                    user=user,
+                    code=otp,
+                    code_type=choices.CodeType.PASSWORD_RESET,
+                    is_used=False
+                )
+            except Passcode.DoesNotExist:
+                logger.warning(f"Invalid password reset OTP for {email}")
+                raise serializers.ValidationError({
+                    "otp": "Invalid or expired reset code."
+                })
+
+            # Check if expired
+            if passcode.expires_at < timezone.now():
+                logger.warning(f"Expired password reset OTP for {email}")
+                passcode.is_used = True
+                passcode.save(update_fields=['is_used'])
+                raise serializers.ValidationError({
+                    "otp": "This reset code has expired. Please request a new one."
+                })
+
+            # Store for use in view
+            attrs['user'] = user
+            attrs['passcode'] = passcode
+
+            logger.info(f"Password reset validation successful for: {email}")
+            return attrs
+
+        except serializers.ValidationError:
+            raise
+        except Exception as e:
+            logger.exception(f"Error in password reset confirmation: {str(e)}")
+            raise serializers.ValidationError({
+                "error": "An error occurred during password reset."
+            })
