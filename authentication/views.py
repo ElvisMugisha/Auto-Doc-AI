@@ -1,7 +1,7 @@
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 from django.contrib.auth import get_user_model
 
@@ -9,7 +9,8 @@ from authentication.serializers import (
     UserRegistrationSerializer,
     UserListSerializer,
     EmailVerificationSerializer,
-    ResendOTPSerializer
+    ResendOTPSerializer,
+    ProfileSerializer
 )
 from utils import loggings, choices
 from utils.utils import create_and_send_otp
@@ -311,20 +312,23 @@ class ResendOTPView(APIView):
     Handles requests to resend verification OTP to users who didn't receive
     the original code or whose code has expired.
 
-    Note: This endpoint automatically deletes any existing OTPs for the user
-    before creating a new one, so there's no rate limiting.
+    Rate Limiting Logic:
+    - Checks if user has an active (unexpired and unused) OTP
+    - If active OTP exists, returns error with remaining time
+    - Only creates new OTP if old one is expired or used
     """
     permission_classes = [AllowAny]
     serializer_class = ResendOTPSerializer
 
     @extend_schema(
         summary="Resend verification OTP",
-        description="Resend a verification OTP to the user's email address. Any existing OTPs will be automatically deleted and a new one will be sent.",
+        description="Resend a verification OTP to the user's email address. A new OTP will only be sent if the previous one has expired or been used.",
         request=ResendOTPSerializer,
         responses={
             200: OpenApiResponse(description="OTP resent successfully"),
             400: OpenApiResponse(description="Bad Request - Invalid email or user already verified"),
             404: OpenApiResponse(description="User not found"),
+            429: OpenApiResponse(description="Too Many Requests - Active OTP still valid"),
             500: OpenApiResponse(description="Internal Server Error")
         }
     )
@@ -335,9 +339,11 @@ class ResendOTPView(APIView):
         Steps:
         1. Validate email address.
         2. Check if user exists and is not verified.
-        3. Delete existing OTPs and create new one.
-        4. Send new OTP via email.
-        5. Return success response.
+        3. Check if user has active (unexpired and unused) OTP.
+        4. If active OTP exists, return error with remaining time.
+        5. If OTP is expired or used, delete it and create new one.
+        6. Send new OTP via email.
+        7. Return success response.
 
         Args:
             request: HTTP request containing email.
@@ -364,9 +370,58 @@ class ResendOTPView(APIView):
                         status=status.HTTP_404_NOT_FOUND
                     )
 
+                # Check for existing OTP for this user and code_type
+                from django.utils import timezone
+                from authentication.models import Passcode
+
+                try:
+                    existing_otp = Passcode.objects.get(
+                        user=user,
+                        code_type=choices.CodeType.VERIFICATION,
+                        is_used=False
+                    )
+
+                    # Check if OTP is still valid (not expired)
+                    if existing_otp.expires_at > timezone.now():
+                        # OTP is still active - don't create new one
+                        remaining_time = existing_otp.expires_at - timezone.now()
+                        total_seconds = int(remaining_time.total_seconds())
+                        minutes_remaining = total_seconds // 60
+                        seconds_remaining = total_seconds % 60
+
+                        logger.warning(
+                            f"Active OTP already exists for {email}. "
+                            f"Expires in {minutes_remaining}m {seconds_remaining}s"
+                        )
+
+                        # Format time remaining message
+                        if minutes_remaining > 0:
+                            time_msg = f"{minutes_remaining} minute(s) and {seconds_remaining} second(s)"
+                        else:
+                            time_msg = f"{seconds_remaining} second(s)"
+
+                        return Response(
+                            {
+                                "error": "An active verification code already exists.",
+                                "message": f"Please use your existing verification code. It will expire in {time_msg}.",
+                                "expires_in_seconds": total_seconds,
+                                "expires_in_minutes": minutes_remaining
+                            },
+                            status=status.HTTP_429_TOO_MANY_REQUESTS
+                        )
+                    else:
+                        # OTP exists but is expired - delete it
+                        logger.info(f"Found expired OTP for {email}, deleting it")
+                        existing_otp.delete()
+
+                except Passcode.DoesNotExist:
+                    # No existing OTP found, or it was used - proceed to create new one
+                    logger.info(f"No active OTP found for {email}, will create new one")
+                    pass
+
                 # Create and send new OTP
-                # Note: create_and_send_otp automatically deletes all existing OTPs
-                # for this user and code_type before creating a new one
+                # Note: create_and_send_otp will delete any remaining OTPs (used ones)
+                # and create a fresh one
                 otp, error_msg, error_status = create_and_send_otp(
                     user=user,
                     code_type=choices.CodeType.VERIFICATION,
@@ -384,7 +439,7 @@ class ResendOTPView(APIView):
 
                 return Response(
                     {
-                        "message": "A new verification code has been sent to your email. Any previous codes have been invalidated.",
+                        "message": "A new verification code has been sent to your email.",
                         "data": {
                             "email": email,
                             "expires_in": "10 minutes"
@@ -413,3 +468,79 @@ class ResendOTPView(APIView):
         # Default to bad request
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
+
+class UserProfileManageView(APIView):
+    """
+    API View for managing user profile.
+
+    Handles both creation and update of the user profile.
+    - If profile exists: Updates it (Partial update).
+    - If profile does not exist: Creates it.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = ProfileSerializer
+
+    @extend_schema(
+        summary="Create or Update user profile",
+        description="Create a profile if it doesn't exist, or update the existing one (partial update).",
+        request=ProfileSerializer,
+        responses={
+            200: OpenApiResponse(description="Profile updated successfully"),
+            201: OpenApiResponse(description="Profile created successfully"),
+            400: OpenApiResponse(description="Bad Request - Invalid data"),
+            401: OpenApiResponse(description="Unauthorized"),
+            500: OpenApiResponse(description="Internal Server Error")
+        }
+    )
+    def post(self, request):
+        """
+        Handle POST request to create or update user profile.
+
+        Steps:
+        1. Check if user has a profile.
+        2. If exists: Update (partial).
+        3. If not: Create new.
+
+        Args:
+            request: HTTP request containing profile data.
+
+        Returns:
+            Response: Profile data and status code (200 or 201).
+        """
+        logger.info(f"Profile manage request by user: {request.user.email}")
+
+        try:
+            # Check if profile exists
+            if hasattr(request.user, 'user_profile'):
+                # Update existing profile
+                profile = request.user.user_profile
+                logger.info(f"Updating existing profile for user: {request.user.email}")
+
+                serializer = self.serializer_class(instance=profile, data=request.data, partial=True)
+
+                if serializer.is_valid():
+                    serializer.save()
+                    logger.info(f"Profile updated successfully for user: {request.user.email}")
+                    return Response(serializer.data, status=status.HTTP_200_OK)
+            else:
+                # Create new profile
+                logger.info(f"Creating new profile for user: {request.user.email}")
+
+                serializer = self.serializer_class(data=request.data)
+
+                if serializer.is_valid():
+                    serializer.save(user=request.user)
+                    logger.info(f"Profile created successfully for user: {request.user.email}")
+                    return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+            # If validation failed
+            logger.warning(f"Profile validation failed: {serializer.errors}")
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            logger.exception(f"Error managing profile for user {request.user.email}: {str(e)}")
+            return Response(
+                {"error": "An unexpected error occurred. Please try again later."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

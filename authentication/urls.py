@@ -6,4 +6,5 @@ urlpatterns = [
     path('verify-email/', views.EmailVerificationView.as_view(), name='verify-email'),
     path('resend-otp/', views.ResendOTPView.as_view(), name='resend-otp'),
     path('users/', views.UserListView.as_view(), name='user-list'),
+    path('profile/create/', views.UserProfileManageView.as_view(), name='create-profile'),
 ]
