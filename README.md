@@ -1,4 +1,4 @@
-# 🚀 Auto-Doc-AI - Universal Document Intelligence API
+# Auto-Doc-AI - Universal Document Intelligence API
 
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
 [![Django](https://img.shields.io/badge/Django-5.2-green.svg)](https://www.djangoproject.com/)
@@ -9,7 +9,7 @@
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
 - [Features](#-features)
 - [Tech Stack](#-tech-stack)
@@ -27,28 +27,28 @@
 
 ---
 
-## ✨ Features
+## Features
 
-### 🎯 Universal Document Processing
+### Universal Document Processing
 - **Accepts ANY document type**: Invoices, receipts, contracts, IDs, passports, forms, letters, reports, and more
 - **Automatic type detection**: No need to specify document type
 - **Multi-page support**: Processes documents with multiple pages
 - **95%+ accuracy**: Using GPT-4 Vision for intelligent extraction
 
-### 🔐 Authentication & Security
+### Authentication & Security
 - **JWT/Token Authentication**: Secure API access
 - **Email Verification**: OTP-based email verification
 - **Password Management**: Change password, reset password with OTP
 - **Role-Based Access Control**: User roles and permissions
 - **Rate Limiting**: Protect against abuse
 
-### 📊 Data Extraction
+### Data Extraction
 - **Comprehensive field extraction**: Extracts ALL meaningful information
 - **Structured JSON output**: Well-organized, human-readable data
 - **Confidence scoring**: Per-field and overall confidence metrics
 - **Smart fallback**: Falls back to local OCR if OpenAI fails
 
-### ⚡ Performance
+### Performance
 - **Async processing**: Celery + Redis for background jobs
 - **Fast processing**: 3-8 seconds per document
 - **Cost-effective**: ~$0.005 per document with gpt-4o-mini
@@ -56,7 +56,7 @@
 
 ---
 
-## 🛠 Tech Stack
+## Tech Stack
 
 ### Backend
 - **Django 5.2** - Web framework
@@ -79,7 +79,7 @@
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 - **Docker** & **Docker Compose** installed
@@ -157,7 +157,7 @@ docker-compose exec api python manage.py createsuperuser
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 ### OpenAI Setup (Recommended for Best Accuracy)
 
@@ -183,7 +183,7 @@ docker-compose exec api python manage.py createsuperuser
 
 ---
 
-## 📚 API Documentation
+## API Documentation
 
 ### Authentication Endpoints
 
@@ -222,7 +222,7 @@ docker-compose exec api python manage.py createsuperuser
 
 ---
 
-## 💡 Usage Examples
+## Usage Examples
 
 ### 1. Register & Login
 
@@ -312,7 +312,7 @@ curl -X GET http://localhost:8000/documents/jobs/{JOB_ID}/results/ \
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 Auto-Doc-AI/
@@ -360,7 +360,7 @@ Auto-Doc-AI/
 
 ---
 
-## 🔧 Development
+## Development
 
 ### Local Development (Without Docker)
 
@@ -419,7 +419,7 @@ mypy .
 
 ---
 
-## 🧪 Testing
+## Testing
 
 ```bash
 # Run all tests
@@ -435,7 +435,7 @@ coverage report
 
 ---
 
-## 🚀 Deployment
+## Deployment
 
 ### Production Checklist
 
@@ -462,7 +462,7 @@ docker-compose -f docker-compose.prod.yml up -d
 
 ---
 
-## 📊 Monitoring
+## Monitoring
 
 ### View Logs
 
@@ -486,7 +486,7 @@ docker-compose logs -f redis
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please follow these steps:
 
@@ -498,13 +498,13 @@ Contributions are welcome! Please follow these steps:
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
-## 👨‍💻 Author
+## Author
 
 **Elvis Mugisha**
 - GitHub: [@ElvisMugisha](https://github.com/ElvisMugisha)
@@ -512,7 +512,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - OpenAI for GPT-4 Vision API
 - Tesseract OCR team
@@ -521,7 +521,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## 📞 Support
+## Support
 
 For support, email mugishaelvis104@gmail.com or open an issue on GitHub.
 
