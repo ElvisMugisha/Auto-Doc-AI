@@ -192,8 +192,8 @@ EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD")
 EMAIL_FROM = config("EMAIL_FROM")
 
 # Celery Configuration
-CELERY_BROKER_URL = config("CELERY_BROKER_URL", default="redis://redis:6379/0")
-CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default="redis://redis:6379/0")
+CELERY_BROKER_URL = config("CELERY_BROKER_URL")
+CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND")
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
@@ -202,8 +202,8 @@ CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes
 
 # OCR Configuration
-TESSERACT_CMD = config("TESSERACT_CMD", default="/usr/bin/tesseract")
+TESSERACT_CMD = config("TESSERACT_CMD")
 
 # AI Configuration (Ollama)
-OLLAMA_BASE_URL = config("OLLAMA_BASE_URL", default="http://host.docker.internal:11434")
-OLLAMA_MODEL = config("OLLAMA_MODEL", default="llama3.2")
+OLLAMA_BASE_URL = config("OLLAMA_BASE_URL")
+OLLAMA_MODEL = config("OLLAMA_MODEL")
