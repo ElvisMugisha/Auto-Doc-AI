@@ -33,6 +33,7 @@ THIRD_PARTY_APPS = [
 # Local
 LOCAL_APPS = [
     'authentication',
+    'documents',
 ]
 
 # Installed Apps

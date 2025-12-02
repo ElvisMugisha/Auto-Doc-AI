@@ -13,6 +13,7 @@ urlpatterns = [
 # Application URLs
 urlpatterns += [
     path('auth/', include('authentication.urls')),
+    path('documents/', include('documents.urls')),
 ]
 
 # API URLs
