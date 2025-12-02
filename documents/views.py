@@ -166,15 +166,17 @@ class DocumentViewSet(viewsets.ModelViewSet):
 
             logger.info(f"Extraction job created: {job.id}")
 
-            # TODO: Trigger async processing task here
-            # For now, we'll process synchronously with mock data
-            self._process_document_mock(job)
+            # Trigger async processing task
+            from .tasks import process_document_task
+            process_document_task.delay(str(job.id))
+
+            logger.info(f"Async processing task queued for job: {job.id}")
 
             serializer = ExtractionJobSerializer(job)
 
             return Response(
                 {
-                    "message": "Extraction job created successfully",
+                    "message": "Extraction job created and queued for processing",
                     "data": serializer.data
                 },
                 status=status.HTTP_201_CREATED

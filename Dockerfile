@@ -11,12 +11,15 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 # Install system dependencies
-# gcc and other tools might be needed for building some python packages
+# Tesseract OCR, poppler-utils for PDF processing, and other build tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
     libjpeg-dev \
     zlib1g-dev \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Install python dependencies
