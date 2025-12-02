@@ -1,0 +1,14 @@
+services:
+  api:
+    build: .
+    container_name: auto_doc_ai_api
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      # Mount the current directory to /app in the container
+      # This allows reusing the local db.sqlite3 and live code reloading
+      - .:/app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    restart: unless-stopped
