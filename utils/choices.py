@@ -28,3 +28,35 @@ class MaritalStatus(models.TextChoices):
     MARRIED = 'Married', _('Married')
     DIVORCED = 'Divorced', _('Divorced')
     WIDOWED = 'Widowed', _('Widowed')
+
+
+class DocumentType(models.TextChoices):
+    """
+    Enum for different document types supported by the system.
+    """
+    INVOICE = "invoice", _("Invoice")
+    RECEIPT = "receipt", _("Receipt")
+    CONTRACT = "contract", _("Contract")
+    ID_DOCUMENT = "id_document", _("ID Document")
+    PASSPORT = "passport", _("Passport")
+    DRIVERS_LICENSE = "drivers_license", _("Driver's License")
+    BANK_STATEMENT = "bank_statement", _("Bank Statement")
+    HR_FORM = "hr_form", _("HR Form")
+    MEDICAL_RECORD = "medical_record", _("Medical Record")
+    TAX_FORM = "tax_form", _("Tax Form")
+    LEGAL_DOCUMENT = "legal_document", _("Legal Document")
+    CERTIFICATE = "certificate", _("Certificate")
+    LETTER = "letter", _("Letter")
+    REPORT = "report", _("Report")
+    FORM = "form", _("Form")
+    OTHER = "other", _("Other")
+
+
+class ProcessingStatus(models.TextChoices):
+    """
+    Enum for document processing status.
+    """
+    PENDING = "pending", _("Pending")
+    PROCESSING = "processing", _("Processing")
+    COMPLETED = "completed", _("Completed")
+    FAILED = "failed", _("Failed")

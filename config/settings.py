@@ -207,3 +207,8 @@ TESSERACT_CMD = config("TESSERACT_CMD")
 # AI Configuration (Ollama)
 OLLAMA_BASE_URL = config("OLLAMA_BASE_URL")
 OLLAMA_MODEL = config("OLLAMA_MODEL")
+
+# OpenAI Configuration (for better accuracy)
+OPENAI_API_KEY = config("OPENAI_API_KEY")
+OPENAI_MODEL = config("OPENAI_MODEL", default="gpt-4o-mini")
+USE_OPENAI = config("USE_OPENAI", default=False, cast=bool)

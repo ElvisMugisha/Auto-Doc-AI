@@ -2,34 +2,12 @@ import uuid
 from django.db import models
 from django.contrib.auth import get_user_model
 from utils import loggings
+from utils.choices import DocumentType, ProcessingStatus
 
 # Initialize logger
 logger = loggings.setup_logging()
 
 User = get_user_model()
-
-
-class DocumentType(models.TextChoices):
-    """
-    Enum for different document types supported by the system.
-    """
-    INVOICE = "invoice", "Invoice"
-    RECEIPT = "receipt", "Receipt"
-    CONTRACT = "contract", "Contract"
-    ID_DOCUMENT = "id_document", "ID Document"
-    BANK_STATEMENT = "bank_statement", "Bank Statement"
-    HR_FORM = "hr_form", "HR Form"
-    OTHER = "other", "Other"
-
-
-class ProcessingStatus(models.TextChoices):
-    """
-    Enum for document processing status.
-    """
-    PENDING = "pending", "Pending"
-    PROCESSING = "processing", "Processing"
-    COMPLETED = "completed", "Completed"
-    FAILED = "failed", "Failed"
 
 
 class Document(models.Model):
