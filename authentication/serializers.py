@@ -136,6 +136,48 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         except Exception as e:
             logger.error(f"Error creating user: {str(e)}")
             raise ValidationError({"error": "Unable to create user. Please try again."})
+
+
+class LoginSerializer(serializers.Serializer):
+    """
+    Serializer for User Login.
+
+    Validates email and password, and authenticates the user.
+    """
+    email = serializers.EmailField(
+        required=True,
+        help_text="User's email address."
+    )
+    password = serializers.CharField(
+        required=True,
+        write_only=True,
+        style={"input_type": "password"},
+        help_text="User's password."
+    )
+
+    def validate(self, attrs):
+        """
+        Validate credentials and authenticate user.
+        """
+        from django.contrib.auth import authenticate
+
+        email = attrs.get('email')
+        password = attrs.get('password')
+
+        if email and password:
+            # Authenticate using email as username
+            user = authenticate(request=self.context.get('request'), username=email, password=password)
+
+            if not user:
+                msg = "Unable to log in with provided credentials."
+                raise serializers.ValidationError(msg, code='authorization')
+        else:
+            msg = "Must include 'email' and 'password'."
+            raise serializers.ValidationError(msg, code='authorization')
+
+        attrs['user'] = user
+        return attrs
+
 from authentication.models import Profile
 
 class ProfileSerializer(serializers.ModelSerializer):
@@ -327,7 +369,7 @@ class UserListSerializer(serializers.ModelSerializer):
     """
     Serializer for listing users with their profile.
     """
-    profile = ProfileSerializer(source='user_profile', read_only=True)
+    profile = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -344,6 +386,17 @@ class UserListSerializer(serializers.ModelSerializer):
             "updated_at",
             "profile",
         ]
+
+    def get_profile(self, obj) -> dict:
+        """
+        Retrieve the user's profile if it exists.
+
+        Returns:
+            dict: Profile data or None if profile doesn't exist.
+        """
+        if hasattr(obj, 'user_profile'):
+            return ProfileSerializer(obj.user_profile).data
+        return None
 
 
 class ResendOTPSerializer(serializers.Serializer):

@@ -3,9 +3,12 @@ from . import views
 
 urlpatterns = [
     path('register/', views.UserRegistrationView.as_view(), name='register'),
+    path('login/', views.LoginView.as_view(), name='login'),
+    path('logout/', views.LogoutView.as_view(), name='logout'),
     path('verify-email/', views.EmailVerificationView.as_view(), name='verify-email'),
     path('resend-otp/', views.ResendOTPView.as_view(), name='resend-otp'),
     path('users/', views.UserListView.as_view(), name='user-list'),
+    path('profile/', views.UserProfileView.as_view(), name='user-profile'),
     path('profile/create/', views.UserProfileManageView.as_view(), name='create-profile'),
     path('password/change/', views.PasswordChangeView.as_view(), name='change-password'),
     path('password/reset/request/', views.PasswordResetRequestView.as_view(), name='password-reset-request'),

@@ -1,12 +1,13 @@
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 from django.contrib.auth import get_user_model
 
 from authentication.serializers import (
     UserRegistrationSerializer,
+    LoginSerializer,
     UserListSerializer,
     EmailVerificationSerializer,
     ResendOTPSerializer,
@@ -18,7 +19,7 @@ from authentication.serializers import (
 )
 from utils import loggings, choices
 from utils.utils import create_and_send_otp
-from utils.permissions import IsSuperAdminOrSuperUser
+from utils.permissions import IsSuperAdminOrSuperUser, IsActiveAndVerified
 from utils.paginations import CustomPageNumberPagination
 
 # Initialize logger
@@ -112,6 +113,117 @@ class UserRegistrationView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+class LoginView(APIView):
+    """
+    API View for User Login.
+
+    Authenticates the user and returns an authentication token.
+    """
+    permission_classes = [AllowAny]
+    serializer_class = LoginSerializer
+
+    @extend_schema(
+        summary="User Login",
+        description="Authenticate a user and return an authentication token.",
+        request=LoginSerializer,
+        responses={
+            200: OpenApiResponse(description="Login successful"),
+            400: OpenApiResponse(description="Bad Request - Invalid credentials"),
+            500: OpenApiResponse(description="Internal Server Error")
+        }
+    )
+    def post(self, request):
+        """
+        Handle POST request for user login.
+        """
+        logger.info("Received login request")
+
+        serializer = self.serializer_class(data=request.data, context={'request': request})
+
+        if serializer.is_valid():
+            try:
+                user = serializer.validated_data['user']
+
+                # Check if user is verified (Double check, though permission classes handle it for other views)
+                if not user.is_verified:
+                    logger.warning(f"Login attempt by unverified user: {user.email}")
+                    return Response(
+                        {"error": "Account is not verified. Please verify your email address."},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+
+                # Create or get token
+                from rest_framework.authtoken.models import Token
+                token, created = Token.objects.get_or_create(user=user)
+
+                logger.info(f"User logged in successfully: {user.email}")
+
+                return Response({
+                    "token": token.key,
+                    "user_id": user.id,
+                    "email": user.email,
+                    "username": user.username,
+                    "role": user.role,
+                    "is_verified": user.is_verified
+                }, status=status.HTTP_200_OK)
+
+            except Exception as e:
+                logger.exception(f"Unexpected error during login: {str(e)}")
+                return Response(
+                    {"error": "An unexpected error occurred. Please try again later."},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+        logger.warning(f"Login failed: {serializer.errors}")
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class LogoutView(APIView):
+    """
+    API View for User Logout.
+
+    Invalidates the user's authentication token.
+    """
+    permission_classes = [IsActiveAndVerified]
+    serializer_class = None  # No input required for logout
+
+    @extend_schema(
+        summary="User Logout",
+        description="Logout the user by deleting their authentication token.",
+        responses={
+            200: OpenApiResponse(description="Logout successful"),
+            401: OpenApiResponse(description="Unauthorized"),
+            500: OpenApiResponse(description="Internal Server Error")
+        }
+    )
+    def post(self, request):
+        """
+        Handle POST request for user logout.
+        """
+        logger.info(f"Logout requested by user: {request.user.email}")
+
+        try:
+            # Delete the token to invalidate it
+            if hasattr(request.user, 'auth_token'):
+                request.user.auth_token.delete()
+                logger.info(f"Token deleted for user: {request.user.email}")
+            else:
+                logger.warning(f"Logout called but no token found for user: {request.user.email}")
+
+            return Response(
+                {"message": "Successfully logged out."},
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            logger.exception(f"Error during logout: {str(e)}")
+            return Response(
+                {"error": "An error occurred while logging out."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+
 class UserListView(APIView):
     """
     API View for listing all users.
@@ -143,7 +255,8 @@ class UserListView(APIView):
 
         try:
             # Get all users and prefetch related profile data for optimization
-            queryset = User.objects.select_related('user_profile').all().order_by('-created_at')
+            # Use prefetch_related for reverse OneToOne relationship
+            queryset = User.objects.prefetch_related('user_profile').all().order_by('-created_at')
 
             # Apply pagination
             paginator = self.pagination_class()
@@ -161,6 +274,50 @@ class UserListView(APIView):
             logger.exception(f"Error retrieving user list: {str(e)}")
             return Response(
                 {"error": "An error occurred while retrieving users."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class UserProfileView(APIView):
+    """
+    API View for retrieving the current user's profile.
+
+    Returns the user's information along with their profile data.
+    If the profile does not exist, the profile field will be null.
+    """
+    permission_classes = [IsActiveAndVerified]
+    serializer_class = UserListSerializer
+
+    @extend_schema(
+        summary="Get user profile",
+        description="Retrieve the authenticated user's information and profile data.",
+        responses={
+            200: UserListSerializer,
+            401: OpenApiResponse(description="Unauthorized"),
+            500: OpenApiResponse(description="Internal Server Error")
+        }
+    )
+    def get(self, request):
+        """
+        Handle GET request to retrieve user profile.
+
+        Returns:
+            User data with profile information.
+        """
+        logger.info(f"User profile requested by: {request.user.email}")
+
+        try:
+            # The user is already available in request.user
+            # We use the serializer to format the response
+            serializer = self.serializer_class(request.user)
+
+            logger.info(f"Successfully retrieved profile for {request.user.email}")
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.exception(f"Error retrieving user profile: {str(e)}")
+            return Response(
+                {"error": "An error occurred while retrieving your profile."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
@@ -481,7 +638,7 @@ class UserProfileManageView(APIView):
     - If profile exists: Updates it (Partial update).
     - If profile does not exist: Creates it.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsActiveAndVerified]
     serializer_class = ProfileSerializer
 
     @extend_schema(
@@ -556,7 +713,7 @@ class PasswordChangeView(APIView):
     Allows authenticated users to change their password by providing
     their current password and a new password.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsActiveAndVerified]
     serializer_class = PasswordChangeSerializer
 
     @extend_schema(
@@ -804,13 +961,11 @@ class PasswordResetVerifyView(APIView):
 
     @extend_schema(
         summary="Verify password reset code",
-        description="Verify the OTP code sent for password reset.",
+        description="Verify the OTP sent to the user's email for password reset.",
         request=PasswordResetVerifySerializer,
         responses={
             200: OpenApiResponse(description="Code verified successfully"),
-            400: OpenApiResponse(description="Bad Request - Invalid or expired code"),
-            404: OpenApiResponse(description="User not found"),
-            410: OpenApiResponse(description="Code expired"),
+            400: OpenApiResponse(description="Bad Request - Invalid code or email"),
             500: OpenApiResponse(description="Internal Server Error")
         }
     )
@@ -820,87 +975,76 @@ class PasswordResetVerifyView(APIView):
 
         Steps:
         1. Validate email and OTP.
-        2. Check if OTP exists and is valid.
-        3. Check if OTP is expired.
-        4. Return success if valid.
+        2. Verify OTP is valid, not expired, and not used.
+        3. Return success response.
 
         Args:
             request: HTTP request containing email and otp.
 
         Returns:
-            Response: Success or error message.
+            Response: Success message.
         """
-        logger.info("Password reset OTP verification requested")
+        logger.info("Password reset verification requested")
 
         serializer = self.serializer_class(data=request.data)
 
         if serializer.is_valid():
+            # If valid, it means OTP is correct and active
+            # The serializer validation handles all checks
             email = serializer.validated_data['email']
-            logger.info(f"Password reset OTP verified for: {email}")
+            logger.info(f"Password reset OTP verified successfully for: {email}")
 
             return Response(
                 {
-                    "message": "Reset code verified successfully. You can now reset your password.",
+                    "message": "Verification code is valid.",
                     "data": {
                         "email": email,
-                        "verified": True
+                        "status": "verified"
                     }
                 },
                 status=status.HTTP_200_OK
             )
 
         # Validation failed
-        logger.warning(f"Password reset OTP verification failed: {serializer.errors}")
-
-        errors = serializer.errors
-
-        # Check for specific error types
-        if 'otp' in errors and any('expired' in str(err).lower() for err in errors['otp']):
-            return Response(serializer.errors, status=status.HTTP_410_GONE)
-
-        if 'email' in errors and any('not found' in str(err).lower() for err in errors['email']):
-            return Response(serializer.errors, status=status.HTTP_404_NOT_FOUND)
-
+        logger.warning(f"Password reset verification failed: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class PasswordResetConfirmView(APIView):
     """
-    API View for confirming password reset with new password.
+    API View for confirming password reset.
 
-    Resets the password after validating OTP and new password.
+    Resets the user's password using the verified OTP and new password.
     """
     permission_classes = [AllowAny]
     serializer_class = PasswordResetConfirmSerializer
 
     @extend_schema(
-        summary="Reset password",
-        description="Reset password using verified OTP and new password.",
+        summary="Confirm password reset",
+        description="Reset the user's password using the OTP and new password.",
         request=PasswordResetConfirmSerializer,
         responses={
             200: OpenApiResponse(description="Password reset successfully"),
             400: OpenApiResponse(description="Bad Request - Invalid data"),
-            404: OpenApiResponse(description="User not found"),
-            410: OpenApiResponse(description="Code expired"),
             500: OpenApiResponse(description="Internal Server Error")
         }
     )
     def post(self, request):
         """
-        Handle POST request to reset password.
+        Handle POST request to confirm password reset.
 
         Steps:
         1. Validate email, OTP, and new password.
-        2. Verify OTP is valid and not expired.
+        2. Verify OTP again (security).
         3. Update user password.
         4. Mark OTP as used.
         5. Return success response.
 
         Args:
-            request: HTTP request containing email, otp, and new passwords.
+            request: HTTP request containing email, otp, new_password.
 
         Returns:
-            Response: Success or error message.
+            Response: Success message.
         """
         logger.info("Password reset confirmation requested")
 
@@ -908,15 +1052,14 @@ class PasswordResetConfirmView(APIView):
 
         if serializer.is_valid():
             try:
-                # Extract validated data
                 validated_data = serializer.validated_data
                 user = validated_data['user']
                 passcode = validated_data['passcode']
                 new_password = validated_data['new_password']
 
-                logger.info(f"Resetting password for user: {user.email}")
+                logger.info(f"Processing password reset for user: {user.email}")
 
-                # Use database transaction for atomicity
+                # Use transaction
                 from django.db import transaction
 
                 try:
@@ -924,12 +1067,12 @@ class PasswordResetConfirmView(APIView):
                         # Update password
                         user.set_password(new_password)
                         user.save(update_fields=['password'])
-                        logger.info(f"Password updated for user: {user.email}")
+                        logger.info(f"Password updated for user {user.email}")
 
                         # Mark OTP as used
                         passcode.is_used = True
                         passcode.save(update_fields=['is_used'])
-                        logger.info(f"Password reset OTP marked as used for: {user.email}")
+                        logger.info(f"Password reset OTP marked as used for {user.email}")
 
                 except Exception as db_error:
                     logger.exception(f"Database error during password reset: {str(db_error)}")
@@ -948,6 +1091,7 @@ class PasswordResetConfirmView(APIView):
                         "email_body": (
                             f"Hi {user.first_name},\n\n"
                             f"Your password has been successfully reset.\n\n"
+                            f"You can now log in with your new password.\n\n"
                             f"If you didn't perform this action, please contact our support team immediately.\n\n"
                             f"Best regards,\n"
                             f"AutoDocAI Team"
@@ -958,28 +1102,19 @@ class PasswordResetConfirmView(APIView):
                 except Exception as email_error:
                     logger.warning(f"Failed to send password reset confirmation email: {str(email_error)}")
 
-                logger.info(f"Password reset completed successfully for {user.email}")
-
                 return Response(
                     {
-                        "message": "Password reset successfully. You can now log in with your new password.",
+                        "message": "Your password has been reset successfully. You can now log in.",
                         "data": {
                             "email": user.email,
-                            "reset_at": user.updated_at
+                            "updated_at": user.updated_at
                         }
                     },
                     status=status.HTTP_200_OK
                 )
 
-            except KeyError as ke:
-                logger.error(f"Missing key in validated data: {str(ke)}")
-                return Response(
-                    {"error": "Invalid reset data. Please try again."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
             except Exception as e:
-                logger.exception(f"Unexpected error during password reset: {str(e)}")
+                logger.exception(f"Unexpected error during password reset confirmation: {str(e)}")
                 return Response(
                     {"error": "An unexpected error occurred. Please try again later."},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -987,14 +1122,4 @@ class PasswordResetConfirmView(APIView):
 
         # Validation failed
         logger.warning(f"Password reset confirmation validation failed: {serializer.errors}")
-
-        errors = serializer.errors
-
-        # Check for specific error types
-        if 'otp' in errors and any('expired' in str(err).lower() for err in errors['otp']):
-            return Response(serializer.errors, status=status.HTTP_410_GONE)
-
-        if 'email' in errors and any('not found' in str(err).lower() for err in errors['email']):
-            return Response(serializer.errors, status=status.HTTP_404_NOT_FOUND)
-
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
