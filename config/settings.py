@@ -70,13 +70,46 @@ TEMPLATES = [
     },
 ]
 
-# Database
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+# Database Configuration
+# Smart switching:
+# - SQLite for local development (DEBUG=True)
+# - PostgreSQL for production (DEBUG=False) or Docker
+import dj_database_url
+
+if DEBUG:
+    # Development: Use SQLite
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
     }
-}
+else:
+    # Production: Use PostgreSQL
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=config('DATABASE_URL', default='postgresql://postgres:postgres@db:5432/autodoc_db'),
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
+    }
+
+# Override for Docker environment (always use PostgreSQL in Docker)
+if config('USE_DOCKER', default=False, cast=bool):
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': config('POSTGRES_DB', default='autodoc_db'),
+            'USER': config('POSTGRES_USER', default='postgres'),
+            'PASSWORD': config('POSTGRES_PASSWORD', default='postgres'),
+            'HOST': config('POSTGRES_HOST', default='db'),
+            'PORT': config('POSTGRES_PORT', default='5432'),
+            'CONN_MAX_AGE': 600,
+            'OPTIONS': {
+                'connect_timeout': 10,
+            }
+        }
+    }
 
 # Authentication
 AUTH_USER_MODEL = 'authentication.User'
