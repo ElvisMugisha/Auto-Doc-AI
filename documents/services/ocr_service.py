@@ -1,16 +1,15 @@
 """
 OCR Service using Tesseract OCR.
 
-Provides text extraction from images and PDFs.
+Provides text extraction from images and PDFs with preprocessing for better accuracy.
 """
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageEnhance
 import fitz  # PyMuPDF
 from pdf2image import convert_from_path
 import tempfile
-import os
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Dict, Optional
 from utils import loggings
 
 logger = loggings.setup_logging()
@@ -35,7 +34,7 @@ class OCRService:
 
     def extract_text_from_image(self, image_path: str) -> str:
         """
-        Extract text from an image file.
+        Extract text from an image file with preprocessing.
 
         Args:
             image_path: Path to image file
@@ -45,9 +44,32 @@ class OCRService:
         """
         try:
             logger.info(f"Extracting text from image: {image_path}")
+
+            # Open and preprocess image
             image = Image.open(image_path)
-            text = pytesseract.image_to_string(image)
+
+            # Convert to RGB if needed
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+
+            # Enhance image quality for better OCR
+            # Increase contrast
+            enhancer = ImageEnhance.Contrast(image)
+            image = enhancer.enhance(2.0)
+
+            # Increase sharpness
+            enhancer = ImageEnhance.Sharpness(image)
+            image = enhancer.enhance(1.5)
+
+            # Use better Tesseract config for receipts/documents
+            # PSM 6 = Assume a single uniform block of text
+            # OEM 3 = Default, based on what is available
+            custom_config = r'--oem 3 --psm 6 -c preserve_interword_spaces=1'
+            text = pytesseract.image_to_string(image, config=custom_config)
+
             logger.info(f"Extracted {len(text)} characters from image")
+            logger.debug(f"OCR Text Preview: {text[:200]}")
+
             return text.strip()
 
         except Exception as e:
@@ -133,18 +155,34 @@ class OCRService:
             Tuple of (text, page_count)
         """
         try:
-            # Convert PDF to images
+            # Convert PDF to images with higher DPI for better quality
             with tempfile.TemporaryDirectory() as temp_dir:
                 logger.info("Converting PDF to images for OCR")
-                images = convert_from_path(pdf_path, dpi=300)
+                # Use 400 DPI for better quality
+                images = convert_from_path(pdf_path, dpi=400)
 
                 text_parts = []
                 for i, image in enumerate(images):
                     logger.debug(f"OCR processing page {i+1}/{len(images)}")
-                    text = pytesseract.image_to_string(image)
+
+                    # Preprocess image
+                    # Increase contrast
+                    enhancer = ImageEnhance.Contrast(image)
+                    image = enhancer.enhance(2.0)
+
+                    # Increase sharpness
+                    enhancer = ImageEnhance.Sharpness(image)
+                    image = enhancer.enhance(1.5)
+
+                    # Better Tesseract config
+                    custom_config = r'--oem 3 --psm 6 -c preserve_interword_spaces=1'
+                    text = pytesseract.image_to_string(image, config=custom_config)
                     text_parts.append(text)
 
-                return '\n\n'.join(text_parts), len(images)
+                full_text = '\n\n'.join(text_parts)
+                logger.debug(f"OCR Text Preview: {full_text[:300]}")
+
+                return full_text, len(images)
 
         except Exception as e:
             logger.error(f"OCR extraction failed: {str(e)}")

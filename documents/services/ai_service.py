@@ -98,22 +98,41 @@ class AIExtractionService:
             Dictionary containing extracted receipt data
         """
         prompt = f"""
-            You are an expert at extracting structured data from receipts.
+            You are an expert at extracting structured data from receipts. You must extract EXACT values from the text, not make up or guess values.
 
-            Extract the following information from this receipt text and return ONLY a valid JSON object:
+            IMPORTANT RULES:
+            1. Extract ONLY what you see in the text
+            2. For dates: Use YYYY-MM-DD format (e.g., 2025-01-02 not 01/02/7025)
+            3. For prices: Extract exact numbers (e.g., 50000 not 245.5)
+            4. For store names: Extract the exact name as written
+            5. If you cannot find a field, use null (not "Unknown")
+
+            Extract these fields from the receipt text below:
 
             Required fields:
-            - store_name
-            - date (YYYY-MM-DD format)
-            - time (HH:MM:SS format if available)
-            - total (number)
-            - payment_method (Cash, Credit Card, Debit Card, etc.)
-            - items (array of objects with: name, price)
+            - store_name: The exact store/business name
+            - date: Transaction date in YYYY-MM-DD format
+            - time: Transaction time in HH:MM:SS format (or null if not found)
+            - total: The TOTAL amount paid (look for "Total", "Total Paid", "Amount")
+            - payment_method: How it was paid (Cash, Card, Mobile Money, etc.)
+            - items: Array of items purchased with name and price
 
             Receipt Text:
             {text}
 
-            Return ONLY the JSON object, no explanations or markdown formatting.
+            CRITICAL: Return ONLY a valid JSON object. No explanations, no markdown, no code blocks.
+            Example format:
+            {{
+            "store_name": "Store Name Here",
+            "date": "2025-01-02",
+            "time": "10:23:56",
+            "total": 50000,
+            "payment_method": "Cash",
+            "items": [
+                {{"name": "Item 1", "price": 1000}},
+                {{"name": "Item 2", "price": 2000}}
+            ]
+            }}
         """
 
         try:

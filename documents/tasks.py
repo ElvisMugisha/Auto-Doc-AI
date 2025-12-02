@@ -4,7 +4,6 @@ Celery tasks for async document processing.
 from celery import shared_task
 from django.utils import timezone
 from django.conf import settings
-import time
 
 from .models import ExtractionJob, ExtractedData, ProcessingStatus
 from .services import OCRService, AIExtractionService
@@ -55,6 +54,9 @@ def process_document_task(self, job_id: str):
 
         extracted_text = ocr_result['text']
         logger.info(f"Extracted {len(extracted_text)} characters using {ocr_result['method']}")
+        logger.info(f"=== OCR EXTRACTED TEXT (First 500 chars) ===")
+        logger.info(extracted_text[:500])
+        logger.info(f"=== END OCR TEXT ===")
 
         if not extracted_text or len(extracted_text) < 10:
             raise ValueError("No text could be extracted from document")
