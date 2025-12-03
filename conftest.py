@@ -2,9 +2,14 @@
 Pytest configuration and fixtures for Auto-Doc-AI tests.
 """
 import pytest
+from io import BytesIO
+from reportlab.pdfgen import canvas
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 from rest_framework.authtoken.models import Token
+from PIL import Image
+
 
 User = get_user_model()
 
@@ -64,10 +69,6 @@ def sample_pdf_file():
     """
     Fixture for creating a sample PDF file for testing.
     """
-    from io.BytesIO
-    from reportlab.pdfgen import canvas
-    from django.core.files.uploadedfile import SimpleUploadedFile
-
     # Create a simple PDF in memory
     buffer = BytesIO()
     p = canvas.Canvas(buffer)
@@ -92,9 +93,6 @@ def sample_image_file():
     """
     Fixture for creating a sample image file for testing.
     """
-    from PIL import Image
-    from io import BytesIO
-    from django.core.files.uploadedfile import SimpleUploadedFile
 
     # Create a simple image
     image = Image.new('RGB', (100, 100), color='white')

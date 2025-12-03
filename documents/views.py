@@ -49,6 +49,12 @@ class DocumentViewSet(viewsets.ModelViewSet):
 
         Optimizes query with select_related and prefetch_related.
         """
+        if getattr(self, 'swagger_fake_view', False):
+            return Document.objects.none()
+
+        if not self.request.user.is_authenticated:
+            return Document.objects.none()
+
         return Document.objects.filter(
             user=self.request.user
         ).prefetch_related('extraction_jobs').order_by('-uploaded_at')
@@ -318,6 +324,12 @@ class ExtractionJobViewSet(viewsets.ReadOnlyModelViewSet):
         """
         Return extraction jobs for documents owned by current user.
         """
+        if getattr(self, 'swagger_fake_view', False):
+            return ExtractionJob.objects.none()
+
+        if not self.request.user.is_authenticated:
+            return ExtractionJob.objects.none()
+
         return ExtractionJob.objects.filter(
             document__user=self.request.user
         ).select_related(
