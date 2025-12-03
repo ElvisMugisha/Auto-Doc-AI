@@ -65,10 +65,32 @@ class Document(models.Model):
         verbose_name = "Document"
         verbose_name_plural = "Documents"
         ordering = ["-uploaded_at"]
+
+        # Database indexes for query optimization
         indexes = [
-            models.Index(fields=["-uploaded_at"]),
-            models.Index(fields=["user", "-uploaded_at"]),
-            models.Index(fields=["document_type"]),
+            # Primary query patterns
+            models.Index(fields=["-uploaded_at"], name="doc_uploaded_idx"),
+            models.Index(fields=["user", "-uploaded_at"], name="doc_user_uploaded_idx"),
+            models.Index(fields=["document_type"], name="doc_type_idx"),
+            models.Index(fields=["user", "document_type"], name="doc_user_type_idx"),
+
+            # For filtering and searching
+            models.Index(fields=["file_format"], name="doc_format_idx"),
+            models.Index(fields=["user", "file_format"], name="doc_user_format_idx"),
+        ]
+
+        # Database constraints for data integrity
+        constraints = [
+            # Ensure file size is positive
+            models.CheckConstraint(
+                check=models.Q(file_size__gt=0),
+                name="doc_positive_file_size"
+            ),
+            # Ensure valid file format
+            models.CheckConstraint(
+                check=models.Q(file_format__in=['pdf', 'jpg', 'jpeg', 'png', 'tiff', 'bmp', 'webp']),
+                name="doc_valid_file_format"
+            ),
         ]
 
     def __str__(self):
@@ -141,10 +163,40 @@ class ExtractionJob(models.Model):
         verbose_name = "Extraction Job"
         verbose_name_plural = "Extraction Jobs"
         ordering = ["-created_at"]
+
+        # Database indexes for query optimization
         indexes = [
-            models.Index(fields=["-created_at"]),
-            models.Index(fields=["document", "-created_at"]),
-            models.Index(fields=["status"]),
+            # Primary query patterns
+            models.Index(fields=["-created_at"], name="job_created_idx"),
+            models.Index(fields=["document", "-created_at"], name="job_doc_created_idx"),
+            models.Index(fields=["status"], name="job_status_idx"),
+
+            # For monitoring and filtering
+            models.Index(fields=["status", "-created_at"], name="job_status_created_idx"),
+            models.Index(fields=["document", "status"], name="job_doc_status_idx"),
+
+            # For performance tracking
+            models.Index(fields=["completed_at"], name="job_completed_idx"),
+            models.Index(fields=["processing_time_seconds"], name="job_proc_time_idx"),
+        ]
+
+        # Database constraints for data integrity
+        constraints = [
+            # Ensure retry count is non-negative
+            models.CheckConstraint(
+                check=models.Q(retry_count__gte=0),
+                name="job_non_negative_retry"
+            ),
+            # Ensure processing time is positive when set
+            models.CheckConstraint(
+                check=models.Q(processing_time_seconds__isnull=True) | models.Q(processing_time_seconds__gt=0),
+                name="job_positive_proc_time"
+            ),
+            # Ensure completed_at is after started_at when both are set
+            models.CheckConstraint(
+                check=models.Q(started_at__isnull=True) | models.Q(completed_at__isnull=True) | models.Q(completed_at__gte=models.F('started_at')),
+                name="job_valid_timestamps"
+            ),
         ]
 
     def __str__(self):

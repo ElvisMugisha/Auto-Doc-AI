@@ -1,6 +1,3 @@
-"""
-Pytest configuration and fixtures for Auto-Doc-AI tests.
-"""
 import pytest
 from io import BytesIO
 from reportlab.pdfgen import canvas
@@ -29,7 +26,6 @@ def user(db):
     """
     user = User.objects.create_user(
         email="testuser@example.com",
-        username="testuser",
         password="TestPass123!",
         first_name="Test",
         last_name="User",
@@ -56,7 +52,6 @@ def admin_user(db):
     """
     admin = User.objects.create_superuser(
         email="admin@example.com",
-        username="admin",
         password="AdminPass123!",
         first_name="Admin",
         last_name="User"

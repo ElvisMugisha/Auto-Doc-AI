@@ -71,7 +71,7 @@ TEMPLATES = [
 ]
 
 # Database Configuration
-# Smart switching:
+# Smart switching with production-grade optimizations:
 # - SQLite for local development (DEBUG=True)
 # - PostgreSQL for production (DEBUG=False) or Docker
 import dj_database_url
@@ -82,15 +82,20 @@ if DEBUG:
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
+            # SQLite optimizations for development
+            'OPTIONS': {
+                'timeout': 20,
+                'check_same_thread': False,
+            }
         }
     }
 else:
-    # Production: Use PostgreSQL
+    # Production: Use PostgreSQL with optimizations
     DATABASES = {
         'default': dj_database_url.config(
             default=config('DATABASE_URL', default='postgresql://postgres:postgres@db:5432/autodoc_db'),
-            conn_max_age=600,
-            conn_health_checks=True,
+            conn_max_age=600,  # Connection pooling: reuse connections for 10 minutes
+            conn_health_checks=True,  # Verify connection health before reuse
         )
     }
 
@@ -104,12 +109,40 @@ if config('USE_DOCKER', default=False, cast=bool):
             'PASSWORD': config('POSTGRES_PASSWORD', default='postgres'),
             'HOST': config('POSTGRES_HOST', default='db'),
             'PORT': config('POSTGRES_PORT', default='5432'),
+
+            # Connection pooling: Keep connections alive for 10 minutes
             'CONN_MAX_AGE': 600,
+
+            # Production-grade PostgreSQL options
             'OPTIONS': {
+                # Connection timeout (seconds)
                 'connect_timeout': 10,
+
+                # Statement timeout (milliseconds) - prevent long-running queries
+                'options': '-c statement_timeout=30000',
+
+                # SSL mode for production (disable for local Docker)
+                'sslmode': config('POSTGRES_SSL_MODE', default='prefer'),
+
+                # Connection pooling settings
+                'keepalives': 1,
+                'keepalives_idle': 30,
+                'keepalives_interval': 10,
+                'keepalives_count': 5,
+            },
+
+            # Disable persistent connections in tests
+            'TEST': {
+                'NAME': 'test_autodoc_db',
             }
         }
     }
+
+# Database connection pool configuration (for production with pgbouncer)
+if not DEBUG:
+    # Disable server-side cursors for better connection pooling compatibility
+    DATABASES['default'].setdefault('OPTIONS', {})
+    DATABASES['default']['OPTIONS']['server_side_binding'] = False
 
 # Authentication
 AUTH_USER_MODEL = 'authentication.User'
